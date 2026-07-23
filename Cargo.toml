@@ -1,0 +1,24 @@
+[package]
+name = "flaky-network"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "flaky_network"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sender"
+path = "src/bin/sender.rs"
+
+[[bin]]
+name = "receiver"
+path = "src/bin/receiver.rs"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

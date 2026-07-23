@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f1117">
+  <title>Flaky Network - Rust Transport Design</title>
+  <style>
+    :root{--ink:#0f1117;--muted:#5f6470;--line:#e4e6eb;--blue:#323dfe;--purple:#cd3ef9;--soft:#f9fafb;--white:#fff}
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:linear-gradient(180deg,#f5f3ff 0,#fff 30rem);
+      color: var(--ink);
+      font:15px/1.65 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+    }
+    body:before{content:"";position:absolute;inset:0 0 auto;height:7px;background:linear-gradient(90deg,var(--purple),var(--blue))}
+    main{width:min(1080px,calc(100% - 32px));margin:auto;padding:32px 0 72px;counter-reset:part}
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 0 48px;border-bottom:1px solid #d9d7e6}
+    .wordmark{display:flex;align-items:center;gap:8px;color:var(--ink);font:700 15px/1 Sora,ui-sans-serif,sans-serif;text-decoration:none}
+    .wordmark b{display:grid;place-items:center;width:25px;height:25px;border-radius:7px;color:#fff;background:linear-gradient(135deg,var(--purple),var(--blue))}
+    .wordmark small{font:500 10px/1.2 "JetBrains Mono",ui-monospace,monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+    .status{display:flex;align-items:center;gap:7px;font:600 10px/1 "JetBrains Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.08em}
+    .status:before{content:"";width:7px;height:7px;border-radius:50%;background:#22b573;box-shadow:0 0 0 4px #22b5731f}
+    header{max-width:900px;padding:76px 0 62px}
+    .eyebrow {
+      margin:0 0 18px;color:var(--blue);
+      font:600 11px/1 "JetBrains Mono",ui-monospace,monospace;
+      letter-spacing:.12em;
+      text-transform: uppercase;
+    }
+    h1,h2,h3{font-family:Sora,ui-sans-serif,system-ui,sans-serif}
+    h1{margin:0;font-size:clamp(3rem,8vw,6.3rem);line-height:.95;letter-spacing:-.06em;font-weight:600}
+    h1 span{color:var(--blue)}
+    h2{margin:0 0 22px;font-size:clamp(1.7rem,4vw,2.6rem);line-height:1.1;letter-spacing:-.04em}
+    h3{margin:0 0 8px;font-size:1rem}
+    p{margin:0 0 14px}
+    .lede{max-width:760px;margin-top:28px;color:var(--muted);font-size:1.12rem}
+    .badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:30px}
+    .badge {
+      border:1px solid #d8d9df;border-radius:4px;background:#ffffffa8;
+      padding:8px 11px;
+      color: var(--muted);
+      font:500 11px/1.2 "JetBrains Mono",ui-monospace,monospace;
+    }
+    .badge strong { color: var(--ink); }
+    section {
+      counter-increment:part;position:relative;margin-top:18px;
+      border:1px solid var(--line);border-radius:10px;background:var(--white);
+      padding:clamp(24px,5vw,48px);
+    }
+    section:before{content:counter(part,decimal-leading-zero) " / SYSTEM";display:block;margin-bottom:20px;color:var(--blue);font:600 10px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.12em}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:7px;overflow:hidden}
+    .card{padding:22px;background:#fff}
+    .card:before{content:"›";display:block;margin-bottom:18px;color:var(--blue);font:700 18px/1 monospace}
+    .card p{color:var(--muted);font-size:.92rem}
+    .flow {
+      display:grid;grid-template-columns:1fr auto 1fr auto 1fr;
+      gap:9px;align-items:center;margin-top:12px;
+    }
+    .node{min-height:118px;border:1px solid var(--line);border-radius:7px;padding:18px;background:var(--soft)}
+    .node small{color:var(--blue);font:600 10px/1 "JetBrains Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.08em}
+    .node p{margin-top:11px;color:var(--muted);font-size:.88rem}
+    .arrow{color:var(--blue);font-size:1.35rem}
+    code,pre{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+    code{color:var(--blue)}
+    pre {
+      overflow-x:auto;margin:14px 0 0;border:0;border-radius:7px;
+      background:var(--ink);padding:17px;color:#f3f4f6;font-size:.83rem;
+    }
+    table{width:100%;border-collapse:collapse;margin-top:16px}
+    th,td{border-bottom:1px solid var(--line);padding:13px 10px;text-align:left;vertical-align:top}
+    th{color:var(--muted);font:600 10px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase}
+    td strong{color:var(--blue)}
+    .formula {
+      margin:18px 0;border:1px solid #b8bcff;border-radius:7px;
+      background:linear-gradient(90deg,#f8efff,#eef0ff);padding:16px 18px;
+      color:#252bc4;font:600 .9rem/1.55 "JetBrains Mono",ui-monospace,monospace;
+    }
+    ol,ul{margin:12px 0 0;padding-left:22px}
+    li{margin:8px 0;color:var(--muted)}
+    li strong{color:var(--ink)}
+    a{color:var(--blue)}
+    .callout{margin-top:22px;border-left:3px solid var(--purple);padding:4px 0 4px 16px;color:var(--muted)}
+    .results{color:#fff;background:var(--ink);border-color:var(--ink)}
+    .results:before,.results code,.results td strong{color:#d688ff}
+    .results th,.results td{border-color:#30333d}.results th,.results p{color:#aaadb7}
+    .result-note{margin-top:16px}
+    footer{margin-top:30px;color:var(--muted);font:500 10px/1.5 "JetBrains Mono",ui-monospace,monospace;text-align:center;text-transform:uppercase;letter-spacing:.07em}
+    @media (max-width: 760px) {
+      main{padding-top:24px}.topbar{padding-bottom:22px}.status{display:none}
+      header{padding:54px 0 42px}.grid,.flow{grid-template-columns:1fr}
+      .arrow{transform:rotate(90deg);justify-self:center}
+      table{display:block;overflow-x:auto;white-space:nowrap}
+    }
+    @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <a class="wordmark" href="#top"><b>›</b> plivo <small>/ systems lab</small></a>
+    <span class="status">valid transport · 85 ms</span>
+  </div>
+  <header id="top">
+    <p class="eyebrow">Systems assignment · Rust · UDP</p>
+    <h1>A compact transport for a <span>flaky network.</span></h1>
+    <p class="lede">The source emits a 160-byte audio frame every 20 ms, but the path may drop, delay, reorder, or duplicate UDP packets. This solution uses almost the entire permitted bandwidth for causal forward-error correction while keeping the sender and receiver small, bounded, and deadline-driven.</p>
+    <div class="badges">
+      <span class="badge"><strong>0.20–0.47%</strong> observed B misses at 85 ms</span>
+      <span class="badge"><strong>1.99935×</strong> exact relay overhead</span>
+      <span class="badge"><strong>0</strong> hot-path heap allocations</span>
+      <span class="badge"><strong>Rust std only</strong></span>
+    </div>
+  </header>
+
+  <section>
+    <h2>The problem, in plain language</h2>
+    <div class="grid">
+      <div class="card"><h3>Loss</h3><p>A missing frame is permanent unless it is resent or reconstructed from redundant information.</p></div>
+      <div class="card"><h3>Jitter</h3><p>Even a correct packet is a miss when its random network delay pushes it past the fixed playout deadline.</p></div>
+      <div class="card"><h3>A hard budget</h3><p>All bytes entering the relay must stay at or below twice the 160-byte raw stream, including recovery traffic.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>End-to-end architecture</h2>
+    <div class="flow" aria-label="Transport data flow">
+      <div class="node"><small>Harness source</small><p>Produces sequence + 160-byte payload exactly every 20 ms on UDP 47010.</p></div>
+      <div class="arrow">→</div>
+      <div class="node"><small>Rust sender</small><p>Sends the data immediately, then a causal XOR parity equation when the byte budget allows.</p></div>
+      <div class="arrow">→</div>
+      <div class="node"><small>Hostile relay</small><p>Drops, delays, reorders, and duplicates packets before delivering them on UDP 47002.</p></div>
+    </div>
+    <div class="flow" aria-label="Receiver data flow">
+      <div class="node"><small>Wire packet</small><p>Two-byte header + 160-byte payload. No handshake, feedback, framework, or side channel.</p></div>
+      <div class="arrow">→</div>
+      <div class="node"><small>Rust receiver</small><p>Unwraps sequence numbers, deduplicates, reconstructs missing frames, and forwards immediately.</p></div>
+      <div class="arrow">→</div>
+      <div class="node"><small>Harness player</small><p>Accepts the first correct copy received by each frame's fixed deadline on UDP 47020.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wire format and recovery</h2>
+    <table>
+      <thead><tr><th>Field</th><th>Bits / bytes</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>Packet kind</td><td>1 bit</td><td><code>0</code> is systematic data; <code>1</code> is parity.</td></tr>
+        <tr><td>Sequence</td><td>15 bits</td><td>Frame number modulo 32,768, stored in network byte order and unwrapped at the receiver.</td></tr>
+        <tr><td>Payload</td><td>160 bytes</td><td>Data is frame <code>i</code>; parity is a causal XOR equation ending at frame <code>i</code>.</td></tr>
+      </tbody>
+    </table>
+    <p class="formula">parity(i) = XOR(payload(j)), for j = i - width + 1 ... i</p>
+    <p>Every data frame is sent immediately. The equation width comes from <code>DELAY_MS</code>: width two at 45 ms, width three at 85 ms, and a conservative maximum of five at longer deadlines. This spends at most half the deadline waiting for future equations while improving tolerance of short correlated loss without tuning for profile A or B.</p>
+    <p>Whenever an equation has exactly one unknown frame, XOR removes every known member and recovers the missing payload. Recovery then revisits equations containing that frame, so the bounded peeling decoder can unlock a short burst even when parity and data arrive in arbitrary order.</p>
+    <p>The receiver forwards recovered frames immediately rather than waiting for an internal playout timer. The harness already owns the steady playout clock, and earlier delivery can only improve the deadline result.</p>
+  </section>
+
+  <section>
+    <h2>Why the bandwidth stays valid</h2>
+    <p>Each relay packet is 162 bytes. In a 30-second run there are 1,500 data packets and 1,462 parity packets:</p>
+    <p class="formula">(1,500 + 1,462) × 162 / (1,500 × 160) = 1.99935×</p>
+    <p>The sender earns 158 redundancy bytes after each 162-byte data packet and spends 162 credits per parity packet, with at most one parity per input frame. This byte-credit invariant replaces a profile-specific packet schedule; a unit test checks every stream length from 1 through 100,000 frames and proves it never crosses 2.0×. No feedback bytes are emitted.</p>
+  </section>
+
+  <section>
+    <h2>Memory and latency behavior</h2>
+    <div class="grid">
+      <div class="card"><h3>Bounded ring</h3><p>Capacity is derived once from the deadline and FEC span, rounds to a power of two, and is capped at 2,048 entries.</p></div>
+      <div class="card"><h3>Fixed buffers</h3><p>Packet buffers and sender history are fixed arrays; receiver slots and its worklist are allocated once before the receive loop.</p></div>
+      <div class="card"><h3>Bounded work</h3><p>Ordinary packets examine at most five short equations. A recovery cascade is bounded by the live ring and never grows its worklist.</p></div>
+    </div>
+    <p class="callout">At the recommended 85 ms delay, the receiver uses only 16 slots (about 5.4 KiB including equation payloads and worklist storage). Packets older than the live window are rejected before they can overwrite a newer slot.</p>
+  </section>
+
+  <section>
+    <h2>Why causal FEC instead of ARQ</h2>
+    <p>An automatic-repeat request must cross the impaired feedback path, and its reply must cross the impaired media path. At low playout delays, that round trip often finishes after the frame's deadline and consumes bytes even when it cannot help. Causal FEC travels with the live stream and can reconstruct a missing frame as soon as an equation containing only that unknown arrives.</p>
+  </section>
+
+  <section class="results">
+    <h2>Measured results</h2>
+    <table>
+      <thead><tr><th>Profile</th><th>Delay</th><th>Seeds</th><th>Miss rate</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>A (mild)</td><td>45 ms</td><td>1</td><td><strong>0.33–0.60%</strong></td><td>Valid in repeated runs</td></tr>
+        <tr><td>B (moderate)</td><td>85 ms</td><td>1–4</td><td><strong>0.20–0.47%</strong></td><td>Valid in every run</td></tr>
+        <tr><td>Synthetic burst + spikes</td><td>170 ms</td><td>11</td><td><strong>0.33%</strong></td><td>Valid</td></tr>
+        <tr><td>Synthetic heavy reorder</td><td>230 ms</td><td>17</td><td><strong>0.00%</strong></td><td>Valid</td></tr>
+      </tbody>
+    </table>
+    <p class="result-note">The recommended grading value is <code>--delay_ms 85</code>. Results and exact commands are preserved in <code>RUNLOG.md</code>.</p>
+  </section>
+
+  <section>
+    <h2>Manual test guide</h2>
+    <ol>
+      <li><strong>Enter the handout directory.</strong> All following commands run beside <code>run.py</code>.</li>
+      <li><strong>Build exactly as the grader will.</strong><pre>make clean &amp;&amp; make
+ls -l ./sender ./receiver</pre></li>
+      <li><strong>Run static and unit validation.</strong><pre>cargo fmt --all -- --check
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings</pre></li>
+      <li><strong>Verify the mild profile.</strong><pre>python3 run.py --profile profiles/A.json --seed 1 --delay_ms 45</pre>Expected: valid, comfortably below 1% misses, and no more than 2.00× overhead.</li>
+      <li><strong>Verify the grading recommendation.</strong><pre>python3 run.py --profile profiles/B.json --seed 1 --delay_ms 85</pre>Expected: valid, comfortably below 1% misses, and no more than 2.00× overhead.</li>
+      <li><strong>Check seed stability.</strong><pre>python3 run.py --profile profiles/B.json --seed 2 --delay_ms 85
+python3 run.py --profile profiles/B.json --seed 3 --delay_ms 85
+python3 run.py --profile profiles/B.json --seed 4 --delay_ms 85</pre>Every measured run was valid; exact random outcomes remain deterministic for an unchanged packet sequence.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Known limits</h2>
+    <ul>
+      <li>An equation with two or more unresolved frames cannot be solved until other received equations reduce it to one unknown; sufficiently long correlated erasures therefore remain unrecoverable.</li>
+      <li>A network spike beyond the selected playout delay is unrecoverably late even if its bytes eventually arrive.</li>
+      <li>The 15-bit sequence unwrapping assumes reordering stays below half the modulo range: 16,384 frames, or about 327 seconds.</li>
+      <li>The assignment fixes one stream and fixed ports; production multi-stream scaling would run isolated sessions with distinct endpoints or a connection identifier.</li>
+    </ul>
+  </section>
+
+  <footer>Generated for the Flaky Network systems assignment · Source of truth: Rust code, RUNLOG.md, and NOTES.md</footer>
+</main>
+</body>
+</html>
