@@ -1,0 +1,23 @@
+services:
+  flaky-network:
+    image: flaky-network-rust:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-4}
+    init: true
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - --profile
+      - ${PROFILE:-profiles/B.json}
+      - --seed
+      - ${SEED:-1}
+      - --delay_ms
+      - ${DELAY_MS:-90}
+      - --duration
+      - ${DURATION_SECONDS:-30}
